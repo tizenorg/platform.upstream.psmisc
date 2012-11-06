@@ -1,22 +1,22 @@
 Name:           psmisc
-Version:        22.16
-Release:        0
-License:        GPL-2.0+
-Summary:        Utilities for managing processes on your system
-Url:            http://sourceforge.net/projects/psmisc/
-Group:          System/Monitoring
-Source:         http://sourceforge.net/projects/psmisc/files/psmisc/%{name}-%{version}.tar.gz
-Patch0:         %{name}-22.16.dif
-Patch1:         %{name}-22.12-tigetstr.patch
-Patch2:         %{name}-22.12-pstree.patch
-Patch42:        pstree-segfault.patch
-Patch43:        %{name}-22.16-timeout.patch
 BuildRequires:  automake
 BuildRequires:  gcc-c++
-BuildRequires:  gettext-tools
 BuildRequires:  glibc-devel
 BuildRequires:  ncurses-devel
+BuildRequires:  gettext-tools
+Url:            http://sourceforge.net/projects/psmisc/
+Version:        22.16
+Release:        0
 Provides:       ps:/usr/bin/killall
+Summary:        Utilities for managing processes on your system
+License:        GPL-2.0+
+Group:          System/Monitoring
+Source:         http://sourceforge.net/projects/psmisc/files/psmisc/%{name}-%{version}.tar.gz
+Patch0:         %name-22.16.dif
+Patch1:         %name-22.12-tigetstr.patch
+Patch2:         %name-22.12-pstree.patch
+Patch42:        pstree-segfault.patch
+Patch43:        %name-22.16-timeout.patch
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 
@@ -38,7 +38,7 @@ processes that are using specified files or filesystems.
 
 %build
 autoreconf -fi
-CFLAGS="-D_GNU_SOURCE %{optflags} -pipe"
+CFLAGS="-D_GNU_SOURCE ${RPM_OPT_FLAGS} -pipe"
 CXXFLAGS="$CFLAGS"
 CC=gcc
 CXX=g++
@@ -51,11 +51,11 @@ sh ./configure --prefix=%{_prefix} --mandir=%{_mandir} \
 make %{?_smp_mflags} CFLAGS="$CFLAGS" "CC=$CC"
 
 %install
-%make_install
+make DESTDIR=$RPM_BUILD_ROOT install
 
 %docs_package
 
-%files
+%files 
 %defattr (-,root,root,755)
 %{_bindir}/fuser
 %{_bindir}/killall
