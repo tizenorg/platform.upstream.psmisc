@@ -12,13 +12,6 @@ Summary:        Utilities for managing processes on your system
 License:        GPL-2.0+
 Group:          System/Monitoring
 Source:         http://sourceforge.net/projects/psmisc/files/psmisc/%{name}-%{version}.tar.gz
-Patch0:         %name-22.16.dif
-Patch1:         %name-22.12-tigetstr.patch
-Patch2:         %name-22.12-pstree.patch
-Patch42:        pstree-segfault.patch
-Patch43:        %name-22.16-timeout.patch
-
-BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 
 %description
 The psmisc package contains utilities for managing processes on your
@@ -30,11 +23,6 @@ processes that are using specified files or filesystems.
 
 %prep
 %setup -q
-%patch42 -p1 -b .to
-%patch43 -p1 -b .comm
-%patch1 -p0 -b .tigetstr
-%patch2 -p0 -b .pstree
-%patch0 -p0 -b .0
 
 %build
 autoreconf -fi
