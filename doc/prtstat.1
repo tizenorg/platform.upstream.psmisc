@@ -1,4 +1,12 @@
-.TH PRTSTAT 1 2011-10-25 "Linux" "User Commands"
+.\"
+.\" Copyright 2009-2012 Craig Small
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 2 of the License, or
+.\" (at your option) any later version.
+.\"
+.TH PRTSTAT 1 "2012-07-28" "psmisc" "User Commands"
 .SH NAME
 prtstat \- print statistics of a process
 .SH SYNOPSIS
@@ -12,26 +20,29 @@ prtstat \- print statistics of a process
 .ad b
 .SH DESCRIPTION
 .B prtstat
-prints the statistics of the specified process. This information comes from
-the \fI/proc/PID/stat\fR file.
+prints the statistics of the specified process.  This information comes
+from the
+.I /proc/PID/stat
+file.
 .SH OPTIONS
 .TP
-.BR \-r , \-\-raw
+.BR \-r , \ \-\-raw
 Print the information in raw format.
 .TP
-.BR \-V , \-\-version
-Show the version information for \fBprtstat\fR.
+.BR \-V , \ \-\-version
+Show the version information for
+.BR prtstat .
 .SH OPTIONS
 .TP
-.BR \-r , \-\-raw
+.BR \-r , \ \-\-raw
 Print the information in raw format.
 .TP
-.BR \-V , \-\-version
-Show the version information for \fBprtstat\fR.
+.BR \-V , \ \-\-version
+Show the version information for
+.BR prtstat .
 .SH FILES
-.nf
-/proc/<PID>/stat source of the information \fBprtstat\fR uses
-.fi
-.SH AUTHORS
-.PP
-Craig Small <csmall@enc.com.au>
+.TP
+/proc/<PID>/stat
+source of the information
+.B prtstat
+uses

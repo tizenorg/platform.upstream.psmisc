@@ -58,7 +58,7 @@ typedef unsigned int uint;
  *	gcc -I/usr/src/linux/include -D__KERNEL__ -x c -E -P - | \
  *	sed -rn '/void[[:blank:]]+prefetch[[:blank:]]*\(/,/^}/p'
  *
- * on the appropiate architecture (here on i686 for i586).
+ * on the appropriate architecture (here on i686 for i586).
  */
 extern inline void attribute((used,__gnu_inline__,always_inline,__artificial__)) prefetch(const void *restrict x)
 {
@@ -68,7 +68,7 @@ extern inline void attribute((used,__gnu_inline__,always_inline,__artificial__))
     asm volatile ("lfetch [%0]"    :: "r" (x))
 #elif defined(__powerpc64__)
     asm volatile ("dcbt 0,%0"      :: "r" (x))
-#elif !defined(__CYGWIN__) && defined(__i386__)
+#elif !defined(__CYGWIN__) && !defined(__PIC__) && defined(__i386__)
     asm volatile ("661:\n\t"
 		  ".byte 0x8d,0x74,0x26,0x00\n"
 		  "\n662:\n"
