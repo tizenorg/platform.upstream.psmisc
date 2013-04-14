@@ -5,12 +5,12 @@ BuildRequires:  glibc-devel
 BuildRequires:  ncurses-devel
 BuildRequires:  gettext-tools
 Url:            http://sourceforge.net/projects/psmisc/
-Version:        22.16
+Version:        22.20
 Release:        0
 Provides:       ps:/usr/bin/killall
 Summary:        Utilities for managing processes on your system
 License:        GPL-2.0+
-Group:          System/Monitoring
+Group:          System/Base
 Source:         http://sourceforge.net/projects/psmisc/files/psmisc/%{name}-%{version}.tar.gz
 
 %description
