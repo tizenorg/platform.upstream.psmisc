@@ -12,6 +12,7 @@ Summary:        Utilities for managing processes on your system
 License:        GPL-2.0+
 Group:          System/Base
 Source:         http://sourceforge.net/projects/psmisc/files/psmisc/%{name}-%{version}.tar.gz
+Source1001: 	psmisc.manifest
 
 %description
 The psmisc package contains utilities for managing processes on your
@@ -23,6 +24,7 @@ processes that are using specified files or filesystems.
 
 %prep
 %setup -q
+cp %{SOURCE1001} .
 
 %build
 autoreconf -fi
@@ -44,6 +46,7 @@ make DESTDIR=$RPM_BUILD_ROOT install
 %docs_package
 
 %files 
+%manifest %{name}.manifest
 %defattr (-,root,root,755)
 %{_bindir}/fuser
 %{_bindir}/killall
