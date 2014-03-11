@@ -27,25 +27,23 @@ processes that are using specified files or filesystems.
 cp %{SOURCE1001} .
 
 %build
-autoreconf -fi
 CFLAGS="-D_GNU_SOURCE ${RPM_OPT_FLAGS} -pipe"
 CXXFLAGS="$CFLAGS"
-CC=gcc
-CXX=g++
+CC=%__cc
+CXX=%__cxx
 export CFLAGS CXXFLAGS CC CXX
-sh ./configure --prefix=%{_prefix} --mandir=%{_mandir} \
-	--disable-rpath		\
-	--with-gnu-ld		\
-	--disable-nls		\
-	--enable-timeout-stat
+%reconfigure --disable-rpath		\
+	     --with-gnu-ld		\
+	     --disable-nls		\
+	     --enable-timeout-stat
 make %{?_smp_mflags} CFLAGS="$CFLAGS" "CC=$CC"
 
 %install
-make DESTDIR=$RPM_BUILD_ROOT install
+%make_install
 
 %docs_package
 
-%files 
+%files
 %manifest %{name}.manifest
 %defattr (-,root,root,755)
 %{_bindir}/fuser
