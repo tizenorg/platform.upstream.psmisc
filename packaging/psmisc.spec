@@ -48,7 +48,9 @@ make %{?_smp_mflags} CFLAGS="$CFLAGS" "CC=$CC"
 %defattr (-,root,root,755)
 %{_bindir}/fuser
 %{_bindir}/killall
+%ifnarch aarch64
 %{_bindir}/peekfd
+%endif
 %{_bindir}/prtstat
 %{_bindir}/pstree
 %{_bindir}/pstree.x11
