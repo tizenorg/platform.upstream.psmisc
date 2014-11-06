@@ -2,7 +2,7 @@
  * pstree.c - display process tree
  *
  * Copyright (C) 1993-2002 Werner Almesberger
- * Copyright (C) 2002-2012 Craig Small
+ * Copyright (C) 2002-2014 Craig Small
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,6 +47,8 @@
 
 #ifdef WITH_SELINUX
 #include <selinux/selinux.h>
+#else
+typedef void* security_context_t; /* DUMMY to remove most ifdefs */
 #endif                                /*WITH_SELINUX */
 
 extern const char *__progname;
@@ -74,6 +76,8 @@ extern const char *__progname;
 #define VT_UR        "m"
 #define        VT_HD        "w"
 
+#define NUM_NS 6
+
 typedef struct _proc {
     char comm[COMM_LEN + 2 + 1]; /* add another 2 for thread brackets */
     char **argv;                /* only used : argv[0] is 1st arg; undef if argc < 1 */
@@ -81,9 +85,8 @@ typedef struct _proc {
     pid_t pid;
     pid_t pgid;
     uid_t uid;
-#ifdef WITH_SELINUX
     security_context_t scontext;
-#endif                                /*WITH_SELINUX */
+    ino_t ns[NUM_NS];
     char flags;
     struct _child *children;
     struct _proc *parent;
@@ -130,17 +133,175 @@ static int *width = NULL;
 static int *more = NULL;
 
 static int print_args = 0, compact = 1, user_change = 0, pids = 0, pgids = 0,
-    show_parents = 0, by_pid = 0, trunc = 1, wait_end = 0;
-#ifdef WITH_SELINUX
+    show_parents = 0, by_pid = 0, trunc = 1, wait_end = 0, ns_change = 0;
 static int show_scontext = 0;
-#endif                                /*WITH_SELINUX */
 static int output_width = 132;
 static int cur_x = 1;
 static char last_char = 0;
 static int dumped = 0;                /* used by dump_by_user */
 static int charlen = 0;                /* length of character */
 
-static void fix_orphans(void);
+enum ns_type {
+    IPCNS = 0,
+    MNTNS,
+    NETNS,
+    PIDNS,
+    USERNS,
+    UTSNS
+};
+struct ns_entry;
+struct ns_entry {
+    ino_t number;
+    CHILD *children;
+    struct ns_entry *next;
+};
+
+static const char *ns_names[] = {
+    [IPCNS] = "ipc",
+    [MNTNS] = "mnt",
+    [NETNS] = "net",
+    [PIDNS] = "pid",
+    [USERNS] = "user",
+    [UTSNS] = "uts",
+};
+
+const char *get_ns_name(int id) {
+    if (id >= NUM_NS)
+        return NULL;
+    return ns_names[id];
+}
+
+static int get_ns_id(const char *name) {
+    int i;
+
+    for (i = 0; i < NUM_NS; i++)
+        if (!strcmp(ns_names[i], name))
+            return i;
+    return -1;
+}
+
+static int verify_ns(int id)
+{
+    char filename[50];
+    struct stat s;
+
+    snprintf(filename, 50, "/proc/%i/ns/%s", getpid(), get_ns_name(id));
+
+    return stat(filename, &s);
+}
+
+static inline void new_proc_ns(PROC *ns_task)
+{
+    struct stat st;
+    char buff[50];
+    pid_t pid = ns_task->pid;
+    int i;
+
+    for (i = 0; i < NUM_NS; i++) {
+        snprintf(buff, sizeof(buff), "/proc/%i/ns/%s", pid,
+                 get_ns_name(i));
+        if (stat(buff, &st)) {
+            ns_task->ns[i] = 0;
+            continue;
+        }
+        ns_task->ns[i] = st.st_ino;
+    }
+}
+
+static void find_ns_and_add(struct ns_entry **root, PROC *r, enum ns_type id)
+{
+    struct ns_entry *ptr, *last = NULL;
+    CHILD **c;
+
+    for (ptr = *root; ptr; ptr = ptr->next) {
+        if (ptr->number == r->ns[id])
+            break;
+        last = ptr;
+    }
+
+    if (!ptr) {
+
+        if (!(ptr = malloc(sizeof(*ptr)))) {
+            perror("malloc");
+            exit(1);
+        }
+
+        memset(ptr, 0, sizeof(*ptr));
+        ptr->number = r->ns[id];
+        if (*root == NULL)
+            *root = ptr;
+        else
+            last->next = ptr;
+    }
+
+    /* move the child to under the namespace's umbrella */
+    for (c = &ptr->children; *c; c = &(*c)->next)
+        ;
+
+    if (!(*c = malloc(sizeof(CHILD)))) {
+        perror("malloc");
+        exit(1);
+    }
+
+    (*c)->child = r;
+    (*c)->next = NULL;
+
+    /* detaching from parent */
+    if (r->parent) {
+        for (c = &r->parent->children; *c; c = &(*c)->next) {
+            if ((*c)->child == r) {
+                *c = (*c)->next;
+                break;
+            }
+        }
+        r->parent = NULL;
+    }
+
+}
+
+static PROC *find_proc(pid_t pid);
+static void sort_by_namespace(PROC *r, enum ns_type id, struct ns_entry **root)
+{
+    CHILD *walk;
+
+    /* first run, find the first process */
+    if (!r) {
+        r = find_proc(1);
+        if (!r)
+            return;
+    }
+
+    if (r->parent == NULL || r->parent->ns[id] != r->ns[id])
+        find_ns_and_add(root, r, id);
+
+    for (walk = r->children; walk; walk = walk->next)
+        sort_by_namespace(walk->child, id, root);
+}
+
+static void fix_orphans(security_context_t scontext);
+
+/*
+ * Determine the correct output width, what we use is:
+ */
+static int get_output_width(void)
+{
+    char *ep, *env_columns;
+    struct winsize winsz;
+
+    env_columns = getenv("COLUMNS");
+    if (env_columns && *env_columns) {
+	long t;
+	t = strtol(env_columns, &ep, 0);
+	if (!*ep && (t > 0) && (t < 0x7fffffffL))
+	    return (int)t;
+    }
+    if (ioctl(1, TIOCGWINSZ, &winsz) >= 0)
+        if (winsz.ws_col)
+            return winsz.ws_col;
+    return 132;
+
+}
+
 /*
  * Allocates additional buffer space for width and more as needed.
  * The first call will allocate the first buffer.
@@ -229,15 +390,12 @@ static int out_int(int x)
     return digits;
 }
 
-#ifdef WITH_SELINUX
 static void out_scontext(security_context_t scontext)
 {
     out_string("`");
     out_string(scontext);
     out_string("'");
 }
-#endif                                /*WITH_SELINUX */
-
 
 static void out_newline(void)
 {
@@ -259,12 +417,8 @@ static PROC *find_proc(pid_t pid)
 	return NULL;
 }
 
-#ifdef WITH_SELINUX
 static PROC *new_proc(const char *comm, pid_t pid, uid_t uid,
                       security_context_t scontext)
-#else                                /*WITH_SELINUX */
-static PROC *new_proc(const char *comm, pid_t pid, uid_t uid)
-#endif                                /*WITH_SELINUX */
 {
     PROC *new;
 
@@ -279,12 +433,11 @@ static PROC *new_proc(const char *comm, pid_t pid, uid_t uid)
     new->flags = 0;
     new->argc = 0;
     new->argv = NULL;
-#ifdef WITH_SELINUX
     new->scontext = scontext;
-#endif                                /*WITH_SELINUX */
     new->children = NULL;
     new->parent = NULL;
     new->next = list;
+    new_proc_ns(new);
     return list = new;
 }
 
@@ -364,24 +517,14 @@ rename_proc(PROC *this, const char *comm, uid_t uid)
 		}
 	}
 }
-#ifdef WITH_SELINUX
 static void
 add_proc(const char *comm, pid_t pid, pid_t ppid, pid_t pgid, uid_t uid,
          const char *args, int size, char isthread, security_context_t scontext)
-#else                                /*WITH_SELINUX */
-static void
-add_proc(const char *comm, pid_t pid, pid_t ppid, pid_t pgid, uid_t uid,
-         const char *args, int size, char isthread)
-#endif                                /*WITH_SELINUX */
 {
     PROC *this, *parent;
 
     if (!(this = find_proc(pid)))
-#ifdef WITH_SELINUX
         this = new_proc(comm, pid, uid, scontext);
-#else                                /*WITH_SELINUX */
-        this = new_proc(comm, pid, uid);
-#endif                                /*WITH_SELINUX */
     else {
 	    rename_proc(this, comm, uid);
     }
@@ -393,11 +536,7 @@ add_proc(const char *comm, pid_t pid, pid_t ppid, pid_t pgid, uid_t uid,
     if (isthread)
       this->flags |= PFLAG_THREAD;
     if (!(parent = find_proc(ppid))) {
-#ifdef WITH_SELINUX
         parent = new_proc("?", ppid, 0, scontext);
-#else                                /*WITH_SELINUX */
-        parent = new_proc("?", ppid, 0);
-#endif
     }
     if (pid != 0) {
       add_child(parent, this);
@@ -409,11 +548,17 @@ add_proc(const char *comm, pid_t pid, pid_t ppid, pid_t pgid, uid_t uid,
 static int tree_equal(const PROC * a, const PROC * b)
 {
     const CHILD *walk_a, *walk_b;
+    int i;
 
     if (strcmp(a->comm, b->comm))
         return 0;
     if (user_change && a->uid != b->uid)
         return 0;
+    if (ns_change) {
+        for (i = 0; i < NUM_NS; i++)
+            if (a->ns[i] != b->ns[i])
+                return 0;
+    }
     for (walk_a = a->children, walk_b = b->children; walk_a && walk_b;
          walk_a = walk_a->next, walk_b = walk_b->next)
         if (!tree_equal(walk_a->child, walk_b->child))
@@ -494,12 +639,20 @@ dump_tree(PROC * current, int level, int rep, int leaf, int last,
         else
             (void) out_int(current->uid);
     }
-#ifdef WITH_SELINUX
+    if (ns_change && current->parent) {
+        for (i = 0; i < NUM_NS; i++) {
+            if (current->ns[i] == 0 || current->parent->ns[i] == 0)
+                continue;
+            if (current->ns[i] != current->parent->ns[i]) {
+                out_char(info++ ? ',' : '(');
+                out_string(get_ns_name(i));
+            }
+        }
+    }
     if (show_scontext) {
         out_char(info++ ? ',' : '(');
         out_scontext(current->scontext);
     }
-#endif                                /*WITH_SELINUX */
     if ((swapped && print_args && current->argc < 0) || (!swapped && info))
         out_char(')');
     if ((current->flags & PFLAG_HILIGHT) && (tmp = tgetstr("me", NULL)))
@@ -520,11 +673,7 @@ dump_tree(PROC * current, int level, int rep, int leaf, int last,
             }
         }
     }
-#ifdef WITH_SELINUX
     if (show_scontext || print_args || !current->children)
-#else                                /*WITH_SELINUX */
-    if (print_args || !current->children)
-#endif                                /*WITH_SELINUX */
     {
         while (closing--)
             out_char(']');
@@ -533,11 +682,7 @@ dump_tree(PROC * current, int level, int rep, int leaf, int last,
     ensure_buffer_capacity(level);
     more[level] = !last;
 
-#ifdef WITH_SELINUX
     if (show_scontext || print_args)
-#else                                /*WITH_SELINUX */
-    if (print_args)
-#endif                                /*WITH_SELINUX */
     {
         width[level] = swapped + (comm_len > 1 ? 0 : -1);
         count=0;
@@ -619,6 +764,20 @@ static void dump_by_user(PROC * current, uid_t uid)
         dump_by_user(walk->child, uid);
 }
 
+static void dump_by_namespace(struct ns_entry *root)
+{
+    struct ns_entry *ptr = root;
+    CHILD *c;
+    char buff[14];
+
+    for ( ; ptr; ptr = ptr->next) {
+        snprintf(buff, sizeof(buff), "[%li]\n", ptr->number);
+        out_string(buff);
+        for (c = ptr->children; c; c = c->next)
+            dump_tree(c->child, 0, 1, 1, 1, 0, 0);
+    }
+}
+
 static void trim_tree_by_parent(PROC * current)
 {
   if (!current)
@@ -634,6 +793,35 @@ static void trim_tree_by_parent(PROC * current)
   trim_tree_by_parent(parent);
 }
 
+static char* get_threadname(const pid_t pid, const int tid, const char *comm)
+{
+    FILE *file;
+    char *thread_comm, *endcomm, *threadname;
+    char path[PATH_MAX + 1];
+    char readbuf[BUFSIZ + 1]; 
+
+    if (! (threadname = malloc(COMM_LEN + 2 + 1))) {
+	exit(2);
+    }
+    if (snprintf(path, PATH_MAX, "%s/%d/task/%d/stat", PROC_BASE, pid, tid) < 0)
+	perror("get_threadname: asprintf");
+    if ( (file = fopen(path, "r")) != NULL) {
+	if (fread(readbuf, 1, BUFSIZ, file) > 0) {
+	    if ((thread_comm = strchr(readbuf, '('))
+		    && (endcomm = strrchr(thread_comm, ')'))) {
+		++thread_comm;
+		*endcomm = '\0';
+		sprintf(threadname, "{%.*s}", COMM_LEN, thread_comm);
+		(void) fclose(file);
+		return threadname;
+	    }
+	}
+    }
+    /* Fall back to old method */
+    sprintf(threadname, "{%.*s}", COMM_LEN, comm);
+    fclose(file);
+    return threadname;
+}
 
 /*
  * read_proc now uses a similar method as procps for finding the process
@@ -653,8 +841,8 @@ static void read_proc(void)
   pid_t pid, ppid, pgid;
   int fd, size;
   int empty;
-#ifdef WITH_SELINUX
   security_context_t scontext = NULL;
+#ifdef WITH_SELINUX
   int selinux_enabled = is_selinux_enabled() > 0;
 #endif                /*WITH_SELINUX */
 
@@ -710,7 +898,6 @@ static void read_proc(void)
               DIR *taskdir;
               struct dirent *dt;
               char *taskpath;
-              char *threadname;
               int thread;
 
               if (! (taskpath = malloc(strlen(path) + 10)))
@@ -719,41 +906,26 @@ static void read_proc(void)
 
               if ((taskdir = opendir(taskpath)) != 0) {
                 /* if we have this dir, we're on 2.6 */
-                if (! (threadname = malloc(COMM_LEN + 2 + 1))) {
-                    exit(2);
-                }
-                sprintf(threadname, "{%.*s}", COMM_LEN, comm);
                 while ((dt = readdir(taskdir)) != NULL) {
                   if ((thread = atoi(dt->d_name)) != 0) {
                     if (thread != pid) {
-#ifdef WITH_SELINUX
+		      char *threadname;
+		      threadname = get_threadname(pid, thread, comm);
                       if (print_args)
                         add_proc(threadname, thread, pid, pgid, st.st_uid, 
                             threadname, strlen (threadname) + 1, 1,scontext);
                       else
                         add_proc(threadname, thread, pid, pgid, st.st_uid, 
                             NULL, 0, 1, scontext);
-#else                /*WITH_SELINUX */
-                      if (print_args)
-                        add_proc(threadname, thread, pid, pgid, st.st_uid,
-                            threadname, strlen (threadname) + 1, 1);
-                      else
-                        add_proc(threadname, thread, pid, pgid, st.st_uid,
-                            NULL, 0, 1);
-#endif                /*WITH_SELINUX */
+                      free(threadname);
                       }
                     }
                   }
-                  free(threadname);
                   (void) closedir(taskdir);
                 }
               free(taskpath);
               if (!print_args)
-#ifdef WITH_SELINUX
                 add_proc(comm, pid, ppid, pgid, st.st_uid, NULL, 0, 0, scontext);
-#else                /*WITH_SELINUX */
-                add_proc(comm, pid, ppid, pgid, st.st_uid, NULL, 0, 0);
-#endif                /*WITH_SELINUX */
               else {
                 sprintf(path, "%s/%d/cmdline", PROC_BASE, pid);
                 if ((fd = open(path, O_RDONLY)) < 0) {
@@ -770,13 +942,8 @@ static void read_proc(void)
                   size--;
                 if (size)
                   buffer[size++] = 0;
-#ifdef WITH_SELINUX
                 add_proc(comm, pid, ppid, pgid, st.st_uid,
                      buffer, size, 0, scontext);
-#else                /*WITH_SELINUX */
-                add_proc(comm, pid, ppid, pgid, st.st_uid,
-                     buffer, size, 0);
-#endif                /*WITH_SELINUX */
               }
             }
           }
@@ -787,7 +954,7 @@ static void read_proc(void)
     }
   }
   (void) closedir(dir);
-  fix_orphans();
+  fix_orphans(scontext);
   if (print_args)
     free(buffer);
   if (empty) {
@@ -796,7 +963,7 @@ static void read_proc(void)
   }
 }
 
-static void fix_orphans(void)
+static void fix_orphans(security_context_t scontext)
 {
   /* When using kernel 3.3 with hidepid feature enabled on /proc
    * then we need fake root pid and gather all the orphan processes
@@ -807,11 +974,7 @@ static void fix_orphans(void)
   PROC *root, *walk;
 
   if (!(root = find_proc(ROOT_PID))) {
-#ifdef WITH_SELINUX
     root = new_proc("?", ROOT_PID, 0, scontext);
-#else                                /*WITH_SELINUX */
-    root = new_proc("?", ROOT_PID, 0);
-#endif
   }
   for (walk = list; walk; walk = walk->next) {
 	if (walk->pid == 1 || walk->pid == 0)
@@ -840,8 +1003,11 @@ static void usage(void)
              "  -G, --vt100         use VT100 line drawing characters\n"
              "  -l, --long          don't truncate long lines\n"
              "  -n, --numeric-sort  sort output by PID\n"
+             "  -N type,\n"
+             "  --ns-sort=type      sort by namespace type (ipc, mnt, net, pid, user, uts)\n"
              "  -p, --show-pids     show PIDs; implies -c\n"
              "  -s, --show-parents  show parents of the selected process\n"
+             "  -S, --ns-changes    show namespace transitions\n"
              "  -u, --uid-changes   show uid transitions\n"
              "  -U, --unicode       use UTF-8 (Unicode) line drawing characters\n"
              "  -V, --version       display version information\n"));
@@ -871,12 +1037,13 @@ void print_version()
 int main(int argc, char **argv)
 {
     PROC *current;
-    struct winsize winsz;
     const struct passwd *pw;
+    struct ns_entry *nsroot = NULL;
     pid_t pid, highlight;
     char termcap_area[1024];
     char *termname, *endptr;
     int c, pid_set;
+    enum ns_type nsid = -1;
 
     struct option options[] = {
         {"arguments", 0, NULL, 'a'},
@@ -887,9 +1054,11 @@ int main(int argc, char **argv)
         {"highlight-pid", 1, NULL, 'H'},
         {"long", 0, NULL, 'l'},
         {"numeric-sort", 0, NULL, 'n'},
+        {"ns-sort", 1, NULL, 'N' },
         {"show-pids", 0, NULL, 'p'},
         {"show-pgids", 0, NULL, 'g'},
         {"show-parents", 0, NULL, 's'},
+        {"ns-changes", 0, NULL, 'S' },
         {"uid-changes", 0, NULL, 'u'},
         {"unicode", 0, NULL, 'U'},
         {"version", 0, NULL, 'V'},
@@ -899,9 +1068,7 @@ int main(int argc, char **argv)
         { 0, 0, 0, 0 }
     };
 
-    if (ioctl(1, TIOCGWINSZ, &winsz) >= 0)
-        if (winsz.ws_col)
-            output_width = winsz.ws_col;
+    output_width = get_output_width();
     pid = ROOT_PID;
     highlight = 0;
     pw = NULL;
@@ -942,11 +1109,11 @@ int main(int argc, char **argv)
 
 #ifdef WITH_SELINUX
     while ((c =
-            getopt_long(argc, argv, "aAcGhH:npglsuUVZ", options,
+            getopt_long(argc, argv, "aAcGhH:nN:pglsSuUVZ", options,
                         NULL)) != -1)
 #else                                /*WITH_SELINUX */
     while ((c =
-            getopt_long(argc, argv, "aAcGhH:npglsuUV", options, NULL)) != -1)
+            getopt_long(argc, argv, "aAcGhH:nN:pglsSuUV", options, NULL)) != -1)
 #endif                                /*WITH_SELINUX */
         switch (c) {
         case 'a':
@@ -988,6 +1155,17 @@ int main(int argc, char **argv)
         case 'n':
             by_pid = 1;
             break;
+        case 'N':
+            nsid = get_ns_id(optarg);
+            if (nsid == -1)
+                 usage();
+            if (verify_ns(nsid)) {
+                 fprintf(stderr,
+                         _("procfs file for %s namespace not available\n"),
+                         optarg);
+                 return 1;
+            }
+            break;
         case 'p':
             pids = 1;
             compact = 0;
@@ -998,6 +1176,9 @@ int main(int argc, char **argv)
             break;
         case 's':
             show_parents = 1;
+            break;
+        case 'S':
+            ns_change = 1;
             break;
         case 'u':
             user_change = 1;
@@ -1045,7 +1226,10 @@ int main(int argc, char **argv)
       pid = ROOT_PID;
     }
 
-    if (!pw)
+    if (nsid != -1) {
+        sort_by_namespace(NULL, nsid, &nsroot);
+        dump_by_namespace(nsroot);
+    } else if (!pw)
         dump_tree(find_proc(pid), 0, 1, 1, 1, 0, 0);
     else {
         dump_by_user(find_proc(ROOT_PID), pw->pw_uid);

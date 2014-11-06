@@ -1,12 +1,12 @@
 .\"
 .\" Copyright 1993-2002 Werner Almesberger
-.\"           2002-2012 Craig Small
+.\"           2002-2014 Craig Small
 .\" This program is free software; you can redistribute it and/or modify
 .\" it under the terms of the GNU General Public License as published by
 .\" the Free Software Foundation; either version 2 of the License, or
 .\" (at your option) any later version.
 .\"
-.TH PSTREE 1 "2012-07-28" "psmisc" "User Commands"
+.TH PSTREE 1 "2014-01-31" "psmisc" "User Commands"
 .SH NAME
 pstree \- display a tree of processes
 .SH SYNOPSIS
@@ -18,8 +18,10 @@ pstree \- display a tree of processes
 .RB [ \-g  ] \ \-\-show\-pgids ]
 .RB [ \-l  , \ \-\-long ]
 .RB [ \-n  , \ \-\-numeric\-sort ]
+.RB [ \-N  , \ \-\-ns\-sort \fIns\fB
 .RB [ \-p  , \ \-\-show\-pids ]
 .RB [ \-s  , \ \-\-show\-parents ]
+.RB [ \-S  , \ \-\-ns-changes ]
 .RB [ \-u  , \ \-\-uid\-changes ]
 .RB [ \-Z  , \ \-\-security\-context ]
 .RB [ \-A  , \ \-\-ascii  , \ \-G  , \ \-\-vt100  , \ \-U  , \ \-\-unicode ]
@@ -111,16 +113,21 @@ available.
 .IP \fB\-g\fP
 Show PGIDs.  Process Group IDs are shown as decimal numbers in
 parentheses after each process name.
-.B \-p
+.B \-g
 implicitly disables compaction.  If both PIDs and PGIDs are displayed
 then PIDs are shown first.
 .IP \fB\-l\fP
-Display long lines.  By default, lines are truncated to the display
-width or 132 if output is sent to a non-tty or if the display width is
-unknown.
+Display long lines.  By default, lines are truncated to either the COLUMNS
+environment variable or the display width.  If neither of these methods work,
+the default of 132 columns is used.
 .IP \fB\-n\fP
 Sort processes with the same ancestor by PID instead of by name. 
 (Numeric sort.)
+.IP \fB\-N\fP
+Show individual trees for each namespace of the type specified.  The
+available types are: ipc, mnt, net, pid, user, uts.  Regular users don't
+have access to other users' processes information, so the output will be
+limited.
 .IP \fB\-p\fP
 Show PIDs.  PIDs are shown as decimal numbers in parentheses after each
 process name.
@@ -128,6 +135,9 @@ process name.
 implicitly disables compaction.
 .IP \fB\-s\fP
 Show parent processes of the specified process.
+.IP \fB\-S\fP
+Show namespaces transitions.  Like \-N, the output is limited when running
+as a regular user.
 .IP \fB\-u\fP
 Show uid transitions.  Whenever the uid of a process differs from the
 uid of its parent, the new uid is shown in parentheses after the

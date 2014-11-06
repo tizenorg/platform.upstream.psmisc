@@ -1,11 +1,11 @@
 dnl Process this file with autoconf to produce a configure script.
 AC_PREREQ([2.68])
 AC_CONFIG_MACRO_DIR([m4])
-AC_INIT([psmisc],[22.20])
+AC_INIT([psmisc],[22.21])
 AC_CONFIG_SRCDIR([src/comm.h])
 AC_CONFIG_HEADER([config.h])
 AC_CONFIG_AUX_DIR([config])
-AC_CANONICAL_TARGET
+AC_CANONICAL_HOST
 AM_INIT_AUTOMAKE([1.10])
 AC_LANG([C])
 
@@ -117,8 +117,10 @@ AC_CHECK_MEMBERS([struct pt_regs.orig_gpr3,
 AC_CHECK_MEMBERS([struct pt_regs.uregs],[],[], [#include <asm/ptrace.h>])
 AC_CHECK_MEMBERS([struct pt_regs.regs,
                   struct pt_regs.cp0_status],[],[], [#include <asm/ptrace.h>])
+AC_CHECK_MEMBERS([struct pt_regs.orig_d0,
+                  struct pt_regs.d0],[],[], [#include <asm/ptrace.h>])
 
-case ${target_os} in
+case ${host_os} in
   gnu*)
     want_fuser=no
     ;;
@@ -149,6 +151,9 @@ AM_CONDITIONAL(WANT_PEEKFD_MIPS,
    test $build_cpu = mipsel &&
    test $ac_cv_member_struct_pt_regs_regs = yes &&
    test $ac_cv_member_struct_pt_regs_cp0_status = yes)
+AM_CONDITIONAL(WANT_PEEKFD_M68K,
+   test $ac_cv_member_struct_pt_regs_orig_d0 = yes &&
+   test $ac_cv_member_struct_pt_regs_d0 = yes)
 
 dnl Checks for library functions.
 AC_FUNC_CLOSEDIR_VOID

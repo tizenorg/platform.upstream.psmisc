@@ -144,8 +144,14 @@
 /* Define to 1 if `cp0_status' is a member of `struct pt_regs'. */
 #undef HAVE_STRUCT_PT_REGS_CP0_STATUS
 
+/* Define to 1 if `d0' is a member of `struct pt_regs'. */
+#undef HAVE_STRUCT_PT_REGS_D0
+
 /* Define to 1 if `gpr' is a member of `struct pt_regs'. */
 #undef HAVE_STRUCT_PT_REGS_GPR
+
+/* Define to 1 if `orig_d0' is a member of `struct pt_regs'. */
+#undef HAVE_STRUCT_PT_REGS_ORIG_D0
 
 /* Define to 1 if `orig_gpr3' is a member of `struct pt_regs'. */
 #undef HAVE_STRUCT_PT_REGS_ORIG_GPR3
