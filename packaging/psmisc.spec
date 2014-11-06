@@ -5,14 +5,14 @@ BuildRequires:  glibc-devel
 BuildRequires:  ncurses-devel
 BuildRequires:  gettext-tools
 Url:            http://sourceforge.net/projects/psmisc/
-Version:        22.20
+Version:        22.21
 Release:        0
 Provides:       ps:/usr/bin/killall
 Summary:        Utilities for managing processes on your system
 License:        GPL-2.0+
-Group:          System/Base
+Group:          System/Utilities
 Source:         http://sourceforge.net/projects/psmisc/files/psmisc/%{name}-%{version}.tar.gz
-Source1001: 	psmisc.manifest
+Source1001:     psmisc.manifest
 
 %description
 The psmisc package contains utilities for managing processes on your
@@ -32,11 +32,11 @@ CXXFLAGS="$CFLAGS"
 CC=%__cc
 CXX=%__cxx
 export CFLAGS CXXFLAGS CC CXX
-%reconfigure --disable-rpath		\
-	     --with-gnu-ld		\
-	     --disable-nls		\
-	     --enable-timeout-stat
-make %{?_smp_mflags} CFLAGS="$CFLAGS" "CC=$CC"
+%reconfigure --disable-rpath \
+             --with-gnu-ld \
+             --disable-nls \
+             --enable-timeout-stat
+%__make %{?_smp_mflags} CFLAGS="$CFLAGS" "CC=$CC"
 
 %install
 %make_install
@@ -54,4 +54,3 @@ make %{?_smp_mflags} CFLAGS="$CFLAGS" "CC=$CC"
 %{_bindir}/prtstat
 %{_bindir}/pstree
 %{_bindir}/pstree.x11
-
