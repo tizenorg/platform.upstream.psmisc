@@ -9,7 +9,7 @@ Version:        22.21
 Release:        0
 Provides:       ps:/usr/bin/killall
 Summary:        Utilities for managing processes on your system
-License:        GPL-2.0+
+License:        GPL-2.0
 Group:          System/Utilities
 Source:         http://sourceforge.net/projects/psmisc/files/psmisc/%{name}-%{version}.tar.gz
 Source1001:     psmisc.manifest
